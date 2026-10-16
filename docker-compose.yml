@@ -1,0 +1,40 @@
+# Local stack: MLflow tracking server + model registry, a one-off trainer, and the API.
+#   make up       -> start everything with synthetic data
+#   http://localhost:5000  MLflow UI
+#   http://localhost:8000/docs  forecast API
+services:
+  mlflow:
+    build: .  # same image as the app, so server and client MLflow versions always match
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+    ports: ["5000:5000"]
+    volumes: [mlflow:/mlflow]
+
+  trainer:
+    build: .
+    depends_on: [mlflow]
+    environment:
+      FINGRID_API_KEY: ${FINGRID_API_KEY:-}
+      SOURCE: ${SOURCE:-synthetic}
+    volumes: [data:/app/data, ./reports:/app/reports]
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        sleep 5 &&
+        energy-forecast ingest --source $${SOURCE} &&
+        energy-forecast train &&
+        energy-forecast monitor
+
+  api:
+    build: .
+    depends_on:
+      trainer:
+        condition: service_completed_successfully
+    ports: ["8000:8000"]
+    volumes: [data:/app/data]
+
+volumes:
+  mlflow:
+  data:
